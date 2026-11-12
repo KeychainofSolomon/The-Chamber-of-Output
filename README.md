@@ -93,8 +93,8 @@ python tests/run_tests.py --days 120 --seed 7
 
 Runs a long random campaign through every command and option and fails on any crash, any digit
 in a brief, or any of the engine's internal words (trait names, need names, manner labels, terms
-like mood or band). Run with nine seeds (3, 7, 11, 23, 31, 47, 59, 73, 89): about 6,000
-commands over 840 simulated days, all passing. The engine has its own audit in RP-Instructional.
+like mood or band). Run with nine seeds (3, 7, 11, 23, 31, 47, 59, 73, 89): 7,946
+commands over 1,080 simulated days, all passing on the shipped code. The engine has its own audit in RP-Instructional.
 
 ## Install
 
