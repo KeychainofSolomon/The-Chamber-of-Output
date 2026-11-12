@@ -89,11 +89,27 @@ def main():
             if random.random() < 0.1: argv += ["--hurt", present[0]]
             if random.random() < 0.15: argv += ["--violence", "--victim", present[0], "--attacker", "player"]
             if random.random() < 0.5: argv += ["--prose", "The pump creaked and the bell rang twice."]
+            if random.random() < 0.4:
+                argv += ["--as"] + ["%s:%s" % (p_, ",".join(random.sample(list(ch.FLAGS) + ["public", "opposed", "hurt"], random.randint(1, 3))))
+                                    for p_ in random.sample(present, random.randint(1, len(present)))]
+            if random.random() < 0.4:
+                argv += ["--treat"] + ["%s:%s" % (p_, random.choice(ch.APPROACHES)) for p_ in random.sample(present, random.randint(1, len(present)))]
+            if random.random() < 0.2: argv += ["--home", present[-1]]
+            if random.random() < 0.15: argv += ["--symbol", random.choice(["Justice", "Faith", "Kin", "Order"])]
+            if random.random() < 0.1: argv.append("--look")
+            if random.random() < 0.1: argv.append("--no-between")
             go(argv, user_text=NAMES + ["The pump creaked and the bell rang twice."] + sum(places.values(), []))
         if day % 5 == 0:
             present = random.sample(NAMES, random.randint(1, 4))
-            go(["violence"] + present + ["--place", "The yard", "--victim", present[0], "--attacker", "player",
-                                        "--hurt", present[0]], user_text=NAMES + places["The yard"])
+            attacker = random.choice(["player"] + present[1:]) if len(present) > 1 else "player"
+            argv = ["violence"] + present + ["--place", random.choice(list(places)), "--victim", present[0],
+                                             "--attacker", attacker, "--hurt", present[0]]
+            if random.random() < 0.3: argv += ["--symbol", random.choice(["Justice", "Faith", "Kin"])]
+            go(argv, user_text=NAMES + sum(places.values(), []))
+        if day == a.days // 3:
+            sp_ = os.path.join(camp, "..", "chamber_test_save")
+            go(["save", sp_], user_text=[sp_ + ".zip"])
+            go(["load", sp_ + ".zip", "--replace"], user_text=[sp_ + ".zip"])
         for nm in random.sample(NAMES, 3):
             kind = random.choice(ch.EVENTS)
             argv = ["event", nm, kind]

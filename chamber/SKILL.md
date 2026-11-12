@@ -54,6 +54,8 @@ python chamber.py habit "Fenwick" drinking
 python chamber.py ask "Fenwick" --touched
 python chamber.py status "Fenwick" dead
 python chamber.py week
+python chamber.py save session1                  # at the end of a session: a zip to keep
+python chamber.py load session1.zip              # at the start of the next: everyone remembers
 ```
 
 ### A scene, step by step
@@ -68,9 +70,16 @@ python chamber.py week
    `--festive`, `--superior` (someone they answer to is watching), `--duty`, `--private`, `--drunk`,
    `--tired`, `--sick`, `--grieving`, `--danger` (violence, injury, disaster, authority, contagion,
    uncanny), `--hurt NAME`. Pass the last lines of your narration as `--prose`.
+   Anything true of only some of them goes per person: `--as "Tomas Coyle:drunk,grieving"`
+   (any of the conditions above, plus public, opposed, hurt), `--treat "Fenwick:pressure"` when the
+   player treats one person differently, `--home NAME` for anyone on their own ground. Add `--look`
+   to see how they'd come across without it counting. The brief also says how the people present
+   treat each other ("Between them"); show that in how they deal with one another.
 5. **Write the scene** from the brief, under the laws above.
-6. **Violence?** Run `violence` with everyone present, then `round ... --violence --victim X
-   --attacker Y` for how they come across afterwards. Write it the way the brief says to.
+6. **Violence?** Run `violence` with everyone present (`--victim`, `--attacker`, `--hurt`; add
+   `--symbol` if the victim stood for something, such as a priest for Faith or a judge for Justice),
+   then `round ... --violence --victim X --attacker Y` for how they come across afterwards. The one
+   who did it gets their own response. Write it the way the brief says to.
 7. **Afterwards**, record what mattered with `event` (kindness, rescue, gift, respect, betrayal,
    humiliation, threat, lie-caught, triumph, loss, reunion, joy, …) and anything someone keeps
    doing with `habit`. People remember. Use `--to NAME` when the event involved someone other than
@@ -89,5 +98,9 @@ python chamber.py week
 - **Something odd**: a small strange beat. Leave it unexplained.
 - **How to write it** (violence): the register to use. **Somewhere in it, unexplained**: details
   from the place to set beside the violence without comment.
+
+**Between sessions.** In a chat app the campaign folder doesn't survive into a new chat. At the end
+of a session run `save`, and give the user the zip. At the start of the next, ask for it and run
+`load`. Without it, everyone starts over and remembers nothing.
 
 If code can't run where you are, tell the user the chamber needs code execution to work.

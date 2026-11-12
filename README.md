@@ -48,7 +48,10 @@ python chamber/chamber.py event "Mairead Coyle" loss --about "Joren Coyle"
 ```
 
 `round` works out a whole room in one call, in the right order: the scene, who leads, how
-their mood carries to the easily moved, then everyone else, each toward the player. A brief looks
+their mood carries to the easily moved, then everyone else, each toward the player, and then how
+the people present treat each other. Conditions and the player's approach can be set for the whole
+room or per person (`--as "Tomas Coyle:drunk"`, `--treat "Fenwick:pressure"`), with home ground,
+the symbol a victim stood for, and a look-only mode. A brief looks
 like this:
 
 ```
@@ -81,6 +84,7 @@ senses, no quests unless `ask` allows one, thoughts shown only by their ripple.
 | `event`, `habit` | Record what happened to someone, or what they did again. |
 | `ask` | Whether someone would ask for help, and with what. |
 | `status` | Dead, comatose, amnesiac, or back. |
+| `save`, `load` | Carry a campaign between chats as a zip; everyone remembers where they were. |
 
 Campaigns live in a folder (`--campaign PATH`, default `./campaign`). Its `record/` folder holds
 a sealed record of how thoughts arose, for the people at the table, never for the narrator.

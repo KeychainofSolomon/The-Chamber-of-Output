@@ -459,21 +459,28 @@ def cmd_round(a, C):
     lead, loud = sv.get("lead"), sv.get("loud")
     spread = set(sv.get("spread_to") or [])
     hurt = set(h.lower() for h in (a.hurt or []))
+    per_flags, per_app = parse_per_person(a)
     lines = []
     if a.prose is None and place:
         pl = load(place)
         lines.append("The place: " + "; ".join(f["text"] for f in pl.get("fixtures", [])[:6]) +
                      (("; and since then, " + "; ".join(pl["marks"][-3:])) if pl.get("marks") else "") + ".")
 
-    def meet(path, lead_att=None, rival=False, contagion=None):
+    def meet(path, lead_att=None, rival=False, contagion=None, who=None, look=False):
         n = load(path)
-        kw = dict(file=path, who=to, approach=a.approach, creed=a.creed, lead=lead_att, rival_of_lead=rival,
-                  contagion=contagion, danger=a.danger or [], audience=a.public, opposed=a.opposed,
-                  their_strength=a.their_strength, ground=0, hurt=n["name"].lower() in hurt, violence=a.violence,
-                  victim=a.victim, attacker=a.attacker, symbol=None, circle=circle, dry_run=False)
+        mine = per_flags.get(n["name"].lower(), set())
+        kw = dict(file=path, who=who or to, approach=None if who else per_app.get(n["name"].lower(), a.approach),
+                  creed=None if who else a.creed, lead=lead_att, rival_of_lead=rival,
+                  contagion=contagion, danger=a.danger or [], audience=a.public or "public" in mine,
+                  opposed=(a.opposed or "opposed" in mine) and not who, their_strength=a.their_strength,
+                  ground=1 if (n["name"].lower() in home) else 0,
+                  hurt=n["name"].lower() in hurt or "hurt" in mine, violence=a.violence,
+                  victim=a.victim, attacker=a.attacker, symbol=a.symbol, circle=circle, dry_run=look or a.look)
         for fl in FLAGS:
-            kw[fl] = getattr(a, fl, False)
+            kw[fl] = getattr(a, fl, False) or fl in mine
         return quiet(E.cmd_meet, **kw)
+
+    home = set(h.lower() for h in (a.home or []))
 
     results = {}
     if lead in by_name:
@@ -501,6 +508,22 @@ def cmd_round(a, C):
             lines.append("%s: %s" % (nm, e))
             continue
         lines += person_lines(v, load(p))
+    if len(live) > 1 and not a.no_between:
+        between = []
+        pairs = [(p1, p2) for p1 in live for p2 in live if p1 != p2][:a.max_pairs]
+        for p1, p2 in pairs:
+            n1, n2 = load(p1), load(p2)
+            if n2["name"] not in n1["trust"]:
+                rv, _ = quiet(E.cmd_affinity, a=p1, b=p2, tie=tie_role(n1, n2["name"]))
+                n1["trust"][n2["name"]] = {"bedrock": clamp(rv.get("regard", 0), -5, 5), "surface": 0}
+                save(n1, p1)
+            v2, e2 = meet(p1, who=n2["name"], look=True)
+            if not e2 and v2:
+                between.append("  %s toward %s: %s." % (n1["name"], n2["name"],
+                               (feel_phrase(v2) + "; " if feel_phrase(v2) else "") + thing(v2.get("form", ""))))
+        if between:
+            lines.append("Between them (show it in how they deal with each other, never say it):")
+            lines += between
     ht = sv.get("hidden_turn")
     if ht:
         what = next((plain for key, plain in TURN if ht["what"].startswith(key)), "something has shifted in them")
@@ -512,6 +535,43 @@ def cmd_round(a, C):
     print("\n".join(lines))
 
 
+def clamp(x, lo, hi):
+    return max(lo, min(hi, x))
+
+
+def tie_role(n, other):
+    for t in n["ties"]:
+        if (t.get("who") or "") == other and t.get("role") in ("kin", "lover", "friend", "mentor", "rival", "enemy",
+                                                                 "creditor", "debtor", "master", "dependant"):
+            return t["role"]
+    for t in n["ties"]:
+        if (t.get("who") or "") == other:
+            return {"child": "kin", "parent": "kin", "sibling": "kin", "spouse": "lover", "student": "dependant",
+                    "subordinate": "dependant", "follower": "dependant", "spiritual": "mentor"}.get(t.get("role"))
+    return None
+
+
+def parse_per_person(a):
+    flags, apps = {}, {}
+    ok = set(FLAGS) | {"public", "opposed", "hurt"}
+    for item in a.as_ or []:
+        name, _, rest = item.rpartition(":")
+        if not name:
+            sys.exit('--as takes "Name:flag,flag" (flags: %s)' % ", ".join(sorted(ok)))
+        fs = set(x.strip().lower() for x in rest.split(",") if x.strip())
+        bad = fs - ok
+        if bad:
+            sys.exit("Unknown condition for %s: %s. Use: %s" % (name, ", ".join(sorted(bad)), ", ".join(sorted(ok))))
+        flags.setdefault(name.strip().lower(), set()).update(fs)
+    for item in a.treat or []:
+        name, _, app = item.rpartition(":")
+        app = app.strip().lower()
+        if not name or app not in APPROACHES:
+            sys.exit('--treat takes "Name:approach" (approaches: %s)' % ", ".join(APPROACHES))
+        apps[name.strip().lower()] = app
+    return flags, apps
+
+
 def is_rival(n, lead):
     return bool(lead) and any((t.get("who") or "") == lead and t.get("role") in ("rival", "enemy") for t in n["ties"])
 
@@ -521,7 +581,7 @@ def cmd_violence(a, C):
     paths = [C.need(C.person(x), "person") for x in a.present]
     place = C.need(C.place(a.place), "place") if a.place else None
     v, err = quiet(E.cmd_violence, files=paths, world=C.world if os.path.exists(C.world) else None, dials=None,
-                   hurt=a.hurt or [], place=place, victim=a.victim, attacker=a.attacker, symbol=None,
+                   hurt=a.hurt or [], place=place, victim=a.victim, attacker=a.attacker, symbol=a.symbol,
                    circle=C.circle(a.circle) if a.circle else None, record=True)
     if err:
         sys.exit(err)
@@ -610,6 +670,31 @@ def cmd_status(a, C):
     print(err or "%s is now %s." % (a.name, a.condition))
 
 
+def cmd_save(a, C):
+    import zipfile
+    out = a.file if a.file.endswith(".zip") else a.file + ".zip"
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for root, _, files in os.walk(C.root):
+            for f in files:
+                full = os.path.join(root, f)
+                z.write(full, os.path.relpath(full, C.root))
+    print("Campaign saved to %s. Keep it; load it next time to carry on." % out)
+
+
+def cmd_load(a, C):
+    import zipfile
+    if not os.path.exists(a.file):
+        sys.exit("No such file: %s" % a.file)
+    with zipfile.ZipFile(a.file) as z:
+        for m in z.namelist():
+            if m.startswith("/") or ".." in m.split("/"):
+                sys.exit("That archive isn't a campaign.")
+        if any(os.listdir(os.path.join(C.root, d)) for d in ("cast", "places", "circles")) and not a.replace:
+            sys.exit("This campaign folder already has people in it. Use --replace to overwrite it.")
+        z.extractall(C.root)
+    print("Campaign loaded. Everyone remembers where they were.")
+
+
 def main():
     ap = argparse.ArgumentParser(description="The Chamber of Output: plain briefs for roleplay narration")
     ap.add_argument("--campaign", default=os.environ.get("CHAMBER_CAMPAIGN", "campaign"))
@@ -632,12 +717,28 @@ def main():
     x.add_argument("--opposed", action="store_true"); x.add_argument("--their-strength", type=int, default=2)
     x.add_argument("--hurt", nargs="*"); x.add_argument("--violence", action="store_true")
     x.add_argument("--victim"); x.add_argument("--attacker")
+    x.add_argument("--as", dest="as_", nargs="*", metavar="NAME:CONDITIONS",
+                   help='conditions for one person only, e.g. "Tomas Coyle:drunk,grieving"')
+    x.add_argument("--treat", nargs="*", metavar="NAME:APPROACH",
+                   help='how the player treats one person, e.g. "Mairead Coyle:pity"')
+    x.add_argument("--home", nargs="*", metavar="NAME", help="people on their own ground")
+    x.add_argument("--symbol", choices=["Strength", "Gain", "Excellence", "Pleasure", "Thrill", "Freedom", "Mercy",
+                                        "Justice", "Kin", "Faith", "Order", "Security"],
+                   help="what the victim of violence stood for, if anything")
+    x.add_argument("--look", action="store_true", help="see how they'd come across without it counting")
+    x.add_argument("--no-between", action="store_true", help="leave out how they treat each other")
+    x.add_argument("--max-pairs", type=int, default=12)
     for fl in FLAGS:
         x.add_argument("--" + fl, action="store_true")
     x.set_defaults(f=cmd_round)
     x = sp.add_parser("violence"); x.add_argument("present", nargs="+"); x.add_argument("--place")
     x.add_argument("--victim"); x.add_argument("--attacker"); x.add_argument("--hurt", nargs="*"); x.add_argument("--circle")
+    x.add_argument("--symbol", choices=["Strength", "Gain", "Excellence", "Pleasure", "Thrill", "Freedom", "Mercy",
+                                        "Justice", "Kin", "Faith", "Order", "Security"])
     x.set_defaults(f=cmd_violence)
+    x = sp.add_parser("save"); x.add_argument("file"); x.set_defaults(f=cmd_save)
+    x = sp.add_parser("load"); x.add_argument("file"); x.add_argument("--replace", action="store_true")
+    x.set_defaults(f=cmd_load)
     x = sp.add_parser("event"); x.add_argument("name"); x.add_argument("kind", choices=EVENTS); x.add_argument("--to")
     x.add_argument("--about"); x.add_argument("--big", action="store_true"); x.add_argument("--trade", action="store_true")
     x.add_argument("--note"); x.set_defaults(f=cmd_event)
