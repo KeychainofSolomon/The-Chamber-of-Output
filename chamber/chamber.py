@@ -234,6 +234,8 @@ def person_lines(view, n):
         out.append("  Colour: " + "; ".join(col) + ".")
     if view.get("speech"):
         out.append("  Speech: " + ", ".join(view["speech"]) + ".")
+    if view.get("punctuation"):
+        out.append("  On the page: " + "; ".join(view["punctuation"]) + ".")
     qs = [x for x in (quirk_phrase(q) for q in view.get("quirks", [])) if x]
     if qs:
         out.append("  Habits of manner: " + "; ".join(qs) + ".")

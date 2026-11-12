@@ -90,6 +90,8 @@ python chamber.py load session1.zip              # at the start of the next: eve
 - **"X toward you: cool; polite, watching your hands."** How they come across right now. Show it
   through behaviour and speech, never by naming it.
 - **Colour** and **Speech**: details to weave in. **Habits of manner**: small things they do.
+- **On the page**: punctuation that suits them now (an exclamation, a semicolon, a word in
+  CAPITALS when they shout). Use it a few times a scene, never on every line.
 - **Beneath what shows**: what's under their surface, which may show only after a lie, and only
   if they're pressed or alone with someone they trust.
 - **If it comes to opposition…**: how they would oppose someone, if the scene turns that way.
