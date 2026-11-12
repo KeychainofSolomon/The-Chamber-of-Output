@@ -6,7 +6,7 @@ The engine that decides who people are and how they react is sealed inside this 
 into plain portrayal: how someone comes across, what shows, what is left in the world to notice.
 No numbers, no workings. Python 3.8+, standard library only.
 """
-import argparse, base64, hashlib, io, json, os, re, sys, types, zlib, contextlib
+import argparse, base64, hashlib, io, json, os, random, re, sys, types, zlib, contextlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FLAGS = ("solemn", "festive", "superior", "duty", "drunk", "tired", "sick", "grieving", "private")
@@ -47,6 +47,9 @@ def quiet(fn, **kw):
     except SystemExit as e:
         return {}, str(e) or "That can't be done."
     return dict(E.VIEW), None
+
+
+_READONLY = [False]
 
 
 # ---------- the campaign on disk ----------
@@ -100,6 +103,8 @@ def load(p):
 
 
 def save(obj, p):
+    if _READONLY[0]:
+        return
     with open(p, "w", encoding="utf-8") as fh:
         json.dump(obj, fh, indent=1, ensure_ascii=False)
 
@@ -273,9 +278,31 @@ def person_lines(view, n):
             txt += ", preferring deceit"
         if txt:
             out.append("  " + txt[0].upper() + txt[1:] + ".")
+    if view.get("under_strain"):
+        out.append("  Under strain, as always: " + view["under_strain"] + ".")
+    for c in view.get("carried") or []:
+        out.append("  Carries from before with %s: %s%s." % (who, EVENT_WORDS.get(c["event"], c["event"]),
+                   ("; at the time, " + E_STRAIN().get(c["took"], "")) if c.get("took") else ""))
+    for b in view.get("believes") or []:
+        out.append("  Believes about %s: %s Speak only from this; it may be wrong." % (who, b))
+    if view.get("business"):
+        out.append("  Ordinary business, meaning nothing: " + view["business"] + ".")
+    if view.get("mishear"):
+        out.append("  An honest misunderstanding this scene: " + view["mishear"] + ". It can be cleared up; nothing more to it.")
     if view.get("today"):
         out.append("  Their day so far: %s (it may or may not come up)." % view["today"])
     return out
+
+
+def E_STRAIN():
+    return engine().STRAIN_WAYS
+
+
+EVENT_WORDS = {"kindness": "a kindness", "rescue": "being rescued", "gift": "a gift", "respect": "being shown respect",
+               "betrayal": "a betrayal", "humiliation": "a humiliation", "threat": "a threat",
+               "lie-caught": "a lie they caught", "triumph": "a triumph", "loss": "a loss", "code-broken": "a line they crossed",
+               "fell-ill": "an illness", "intoxicated": "a night's drinking", "reunion": "a reunion", "joy": "a good time",
+               "witnessed": "something they saw"}
 
 
 def sheet(n):
@@ -351,6 +378,7 @@ def cmd_setting(a, C):
     E = engine()
     w = load(C.world) if os.path.exists(C.world) else {"week": 0, "history": []}
     w["dials"] = E.parse_dials(a.dials)
+    w["schema"] = CHAMBER_SCHEMA
     save(w, C.world)
     print("The setting is fixed.")
 
@@ -419,6 +447,10 @@ def day_note(x):
         return "craving %s: three days without it" % thing(m.group(1))
     if x.startswith("craving "):
         return clean(x)
+    m = re.match(r"an old memory came back to them today: the ([\w-]+)(, on its anniversary)?", x)
+    if m:
+        return "an old memory came back to them today: %s%s" % (EVENT_WORDS.get(m.group(1), "something from before"),
+                                                               ", on its anniversary" if m.group(2) else "")
     if x.startswith("what they didn't feel at the time arrives now"):
         return "what they didn't feel at the time arrives now"
     if x.startswith("clarity"):
@@ -472,7 +504,7 @@ def cmd_round(a, C):
     circle = C.need(C.circle(a.circle), "circle") if a.circle else None
     sv, err = quiet(E.cmd_scene, files=paths, world=C.world if os.path.exists(C.world) else None, place=place,
                     circle=circle, present=[to] + (a.others or []), danger=a.danger or [], prose=a.prose or "",
-                    seal=C.record)
+                    seal=None if a.look else C.record)
     if err:
         sys.exit(err)
     live = [p for p in paths if load(p)["condition"] not in ("dead", "comatose")]
@@ -553,8 +585,15 @@ def cmd_round(a, C):
     for s in sv.get("slips") or []:
         lines.append("If %s is pressed, or alone with someone they trust, and only after a lie: what's beneath may show for a moment." % s)
     if sv.get("oddity"):
-        lines.append("Something odd, from %s: %s. Leave it unexplained." % (sv["oddity"]["name"], sv["oddity"]["what"]))
+        od = sv["oddity"]
+        lines.append("Something odd, from %s: %s. %s" % (od["name"], od["what"], "It has an ordinary reason nobody will mention; don't build on it."
+                                                         if od.get("mundane") else "Leave it unexplained."))
     print("\n".join(lines))
+    if not a.look:
+        bp = os.path.join(C.root, "record", "briefs.jsonl")
+        kept = _lines(bp)[-19:] + [{"text": "\n".join(lines)}]
+        with open(bp, "w", encoding="utf-8") as fh:
+            fh.write("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in kept))
 
 
 def clamp(x, lo, hi):
@@ -634,7 +673,10 @@ def cmd_event(a, C):
     except SystemExit as e:
         sys.exit(str(e))
     text = out.getvalue()
+    took = engine().VIEW.get("took_text")
     L = ["%s will remember this." % load(p)["name"]]
+    if took:
+        L.append("How they take it, as they always do: %s." % took)
     for (ax, sg), word in SHIFT.items():
         if "%s shifts %+d" % (ax, sg) in text:
             L.append("It has changed them: %s." % word)
@@ -678,6 +720,7 @@ def cmd_ask(a, C):
     if err:
         sys.exit(err)
     nm = load(C.person(a.name))["name"]
+    _append(os.path.join(C.root, "record", "asks.jsonl"), {"name": nm, "result": v.get("result")})
     if v.get("result") == "may":
         print("%s may ask for help with this: %s.%s Pride or a principle may still stop them." % (
             nm, v["text"], " Only part of it is anyone else's to do." if v.get("shape") != "Full" else ""))
@@ -832,9 +875,499 @@ def cmd_load(a, C):
     print("Campaign loaded. Everyone remembers where they were.")
 
 
-def main():
+
+# ---------- schema, identity, backups, recovery ----------
+CHAMBER_SCHEMA = 2
+NOT_STATE = ("record/journal.jsonl", "record/narration.jsonl", "record/briefs.jsonl", "record/asks.jsonl")
+
+
+def state_hash(root):
+    """A fingerprint of the campaign's simulated state (not the journal or the narration log)."""
+    h = hashlib.sha256()
+    for full, rel in sorted(_campaign_files(root)[0], key=lambda x: x[1]):
+        if rel in NOT_STATE:
+            continue
+        h.update(rel.encode())
+        with open(full, "rb") as fh:
+            h.update(fh.read())
+    return h.hexdigest()[:16]
+
+
+def write_archive(root, out):
+    import zipfile
+    keep, skipped = _campaign_files(root)
+    tmp = out + ".partial"
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+        for full, rel in keep:
+            with open(full, "rb") as fh:
+                z.writestr(rel, fh.read())
+    os.replace(tmp, out)
+    return skipped
+
+
+def backups_dir(C):
+    return os.path.abspath(C.root).rstrip(os.sep) + ".backups"
+
+
+def auto_backup(C, why, rotate=True):
+    if not (os.path.exists(C.world) or C.everyone()):
+        return
+    import time
+    d = backups_dir(C)
+    os.makedirs(d, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    i = 0
+    while True:
+        out = os.path.join(d, "%s-%s%s.zip" % (stamp, why, "-%d" % i if i else ""))
+        if not os.path.exists(out):
+            break
+        i += 1
+    write_archive(C.root, out)
+    old = sorted(f for f in os.listdir(d) if f.endswith(".zip")) if rotate else []
+    for f in old[:-8]:
+        os.remove(os.path.join(d, f))
+
+
+def cmd_backups(a, C):
+    d = backups_dir(C)
+    fs = sorted(f for f in os.listdir(d) if f.endswith(".zip")) if os.path.isdir(d) else []
+    print("\n".join(fs) if fs else "No automatic backups yet.")
+
+
+def cmd_restore(a, C):
+    d = backups_dir(C)
+    fs = sorted(f for f in os.listdir(d) if f.endswith(".zip")) if os.path.isdir(d) else []
+    if not fs:
+        sys.exit("No automatic backups to restore.")
+    pick = a.which or fs[-1]
+    if pick not in fs:
+        sys.exit("No backup by that name. Run `backups` to see them.")
+    a.file, a.replace = os.path.join(d, pick), True
+    cmd_load(a, C)
+    print("Restored from %s." % pick)
+
+
+def cmd_rename(a, C):
+    """A new name, the same person: the id never changes, and everyone's memory follows."""
+    E = engine()
+    src = C.need(C.person(a.old), "person")
+    dst = C.person(a.new)
+    if os.path.exists(dst):
+        sys.exit("Someone by that name is already in this campaign.")
+    n = load(src)
+    old = n["name"]
+    n["name"] = a.new
+    E.migrate(n)
+    save(n, dst)
+    os.remove(src)
+    for p in C.everyone() + [os.path.join(C.root, "circles", f) for f in os.listdir(os.path.join(C.root, "circles"))]:
+        x = load(p)
+        changed = False
+        for t in x.get("ties", []):
+            if t.get("who") == old:
+                t["who"] = a.new; changed = True
+        if old in x.get("trust", {}):
+            x["trust"][a.new] = x["trust"].pop(old); changed = True
+        for m in x.get("memory", []):
+            if m.get("with") == old:
+                m["with"] = a.new; changed = True
+        for b in x.get("knows", []):
+            if b.get("from") == old:
+                b["from"] = a.new; changed = True
+            if b.get("subject") == old:
+                b["subject"] = a.new; changed = True
+            if old in b.get("also_from", []):
+                b["also_from"] = [a.new if y == old else y for y in b["also_from"]]; changed = True
+        if old in x.get("members", []):
+            x["members"] = [a.new if y == old else y for y in x["members"]]; changed = True
+        if changed:
+            save(x, p)
+    print("%s is now known as %s; the same person, remembered by everyone as such." % (old, a.new))
+
+
+def cmd_migrate(a, C):
+    E = engine()
+    k = 0
+    for p in C.everyone() + [os.path.join(C.root, "circles", f) for f in os.listdir(os.path.join(C.root, "circles"))]:
+        x = load(p)
+        before = json.dumps(x, sort_keys=True)
+        E.migrate(x)
+        if json.dumps(x, sort_keys=True) != before:
+            save(x, p); k += 1
+    if os.path.exists(C.world):
+        w = load(C.world)
+        if w.get("schema") != CHAMBER_SCHEMA:
+            w["schema"] = CHAMBER_SCHEMA; save(w, C.world); k += 1
+    print("Campaign is up to date%s." % (" (%d files brought forward; nobody changed who they are)" % k if k else ""))
+
+
+def cmd_doctor(a, C):
+    """Check every file; with --fix, set aside what can't be read and repair what can be."""
+    import shutil
+    E = engine()
+    problems, fixed = [], []
+    keep, skipped = _campaign_files(C.root)
+    ids = {}
+    names = set()
+    for full, rel in keep:
+        with open(full, "rb") as fh:
+            data = fh.read()
+        if not _valid(rel, data):
+            problems.append("%s can't be read as part of a campaign" % rel)
+            if a.fix:
+                q = os.path.abspath(C.root).rstrip(os.sep) + ".quarantine"
+                os.makedirs(q, exist_ok=True)
+                shutil.move(full, os.path.join(q, rel.replace("/", "__")))
+                fixed.append("set aside " + rel)
+            continue
+        if rel.startswith("cast/"):
+            x = json.loads(data.decode("utf-8"))
+            names.add(x["name"])
+            pid = x.get("id")
+            if pid and pid in ids:
+                problems.append("%s and %s share an identity" % (ids[pid], rel))
+                if a.fix:
+                    x["id"] = E.new_id(); save(x, full); fixed.append("gave %s its own identity" % rel)
+            ids[pid] = rel
+    for p in [os.path.join(C.root, "circles", f) for f in os.listdir(os.path.join(C.root, "circles"))]:
+        try:
+            c = load(p)
+        except ValueError:
+            continue
+        gone = [m for m in c.get("members", []) if m not in names]
+        if gone:
+            problems.append("%s lists people not in the campaign: %s" % (os.path.basename(p), ", ".join(gone)))
+    if skipped:
+        problems.append("%d stray file(s) in the campaign folder (left out of saves)" % skipped)
+    print("\n".join(["Campaign check:"] + ["  " + x for x in problems] + ["  Fixed: " + x for x in fixed])
+          if problems else "Campaign check: everything reads as it should.")
+
+
+# ---------- the journal and deterministic replay ----------
+MUTATING = {"setting", "week", "new", "place", "circle", "tie", "day", "round", "violence", "event", "habit",
+            "status", "rename", "migrate", "fact", "learn", "tell", "spread", "found"}
+BIG = {"day", "migrate", "rename", "status"}
+
+
+def journal_path(C):
+    return os.path.join(C.root, "record", "journal.jsonl")
+
+
+def journal(C):
+    p = journal_path(C)
+    if not os.path.exists(p):
+        return []
+    with open(p, encoding="utf-8") as fh:
+        return [json.loads(x) for x in fh if x.strip()]
+
+
+def campaign_seed(C, fresh=None):
+    j = journal(C)
+    if j and "seed" in j[0]:
+        return j[0]["seed"], len(j) - 1
+    seed = fresh or "%016x" % random.SystemRandom().getrandbits(64)
+    with open(journal_path(C), "a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"seed": seed, "schema": CHAMBER_SCHEMA}) + "\n")
+    return seed, 0
+
+
+def cmd_replay(a, C):
+    """Rebuild the campaign from a save plus the journal, and check that every step comes out the same."""
+    import tempfile, shutil, zipfile
+    mine = journal(C)
+    if not mine:
+        sys.exit("This campaign has no journal to replay.")
+    work = tempfile.mkdtemp()
+    try:
+        T = Campaign(os.path.join(work, "c"))
+        start = 0
+        if a.archive:
+            sub = types.SimpleNamespace(file=a.archive, replace=True)
+            with contextlib.redirect_stdout(io.StringIO()):
+                cmd_load(sub, T)
+            theirs = journal(T)
+            if not theirs or theirs[0] != mine[0] or theirs != mine[:len(theirs)]:
+                sys.exit("That save isn't an earlier point of this campaign.")
+            start = len(theirs) - 1
+        else:
+            with open(journal_path(T), "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(mine[0]) + "\n")
+        steps = mine[1 + start:]
+        for i, e in enumerate(steps, start + 1):
+            if e["argv"][0] == "load":
+                sys.exit("Step %d loaded a save; replay from that save instead." % i)
+            before = state_hash(T.root)
+            if before != e["before"]:
+                sys.exit("Replay diverged before step %d (%s)." % (i, " ".join(e["argv"][:3])))
+            buf = io.StringIO()
+            sys.argv = ["chamber.py", "--campaign", T.root] + e["argv"]
+            with contextlib.redirect_stdout(buf):
+                try:
+                    main(replaying=True)
+                except SystemExit:
+                    pass
+            if state_hash(T.root) != e["after"]:
+                sys.exit("Replay diverged at step %d (%s): the same seed gave a different result." % (i, " ".join(e["argv"][:3])))
+        print("Replayed %d step%s exactly: same seed, same actions, same world." % (len(steps), "" if len(steps) == 1 else "s"))
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+# ---------- knowledge: facts, beliefs, what the player has found ----------
+HOW = {"saw": "witnessed", "heard": "heard", "read": "read", "worked-out": "inferred", "suspects": "imagined"}
+
+
+def _append(path, obj):
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(obj, ensure_ascii=False) + "\n")
+
+
+def _lines(path):
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as fh:
+        return [json.loads(x) for x in fh if x.strip()]
+
+
+def cmd_fact(a, C):
+    p = os.path.join(C.root, "record", "facts.jsonl")
+    k, fid = len(_lines(p)), ""
+    while True:  # fact-a, fact-b, ... fact-aa: no digits ever reach a brief
+        fid = chr(97 + k % 26) + fid
+        k = k // 26 - 1
+        if k < 0:
+            break
+    fid = a.id or "fact-" + fid
+    _append(p, {"id": fid, "text": a.text})
+    print("Recorded as what happened (%s). Nobody in the world knows it unless they learn it." % fid)
+
+
+def cmd_learn(a, C):
+    E = engine()
+    v, err = quiet(E.cmd_learn, file=C.need(C.person(a.name), "person"), subject=a.about, claim=a.claim,
+                   source=HOW[a.how], source_name=a.from_, reliability=None, fact=a.fact, secret=a.secret, stressed=a.stressed)
+    print(err or "%s now believes, about %s" % (v["name"], v["plain"]))
+
+
+def cmd_tell(a, C):
+    E = engine()
+    v, err = quiet(E.cmd_tell, teller=C.need(C.person(a.teller), "person"), hearer=C.need(C.person(a.hearer), "person"),
+                   about=a.about)
+    if err:
+        sys.exit(err)
+    if v.get("refused"):
+        sys.exit(v["refused"])
+    print("%s now believes, about %s" % (v["hearer"], v["plain"]))
+
+
+def cmd_spread(a, C):
+    """Let something get around a group: a few tellings between random pairs, as gossip goes."""
+    E = engine()
+    paths = [C.need(C.person(x), "person") for x in a.among]
+    if len(paths) < 2:
+        sys.exit("A rumour needs at least two people to get around.")
+    told = 0
+    for _ in range(a.times):
+        holders = [p for p in paths if E.beliefs_about(load(p), a.about)]
+        if not holders:
+            break
+        t = random.choice(holders)
+        h = random.choice([p for p in paths if p != t])
+        v, err = quiet(E.cmd_tell, teller=t, hearer=h, about=a.about)
+        told += bool(v and not v.get("refused"))
+    print(("Nobody passed it on." if not told else "It gets around a little." if told <= 2 else "It goes round.")
+          + " Run `accounts` to see who believes what.")
+
+
+def cmd_accounts(a, C):
+    E = engine()
+    paths = [C.need(C.person(x), "person") for x in a.names] if a.names else C.everyone()
+    out = []
+    for p in paths:
+        n = load(p)
+        for b in E.beliefs_about(n, a.about)[:2]:
+            out.append("%s: %s" % (n["name"], E.belief_plain(b, subject=False)))
+    print("\n".join(["What people believe about %s (beliefs only; any of it may be wrong):" % a.about] + ["  " + x for x in out])
+          if out else "Nobody believes anything about %s." % a.about)
+
+
+def cmd_found(a, C):
+    p = os.path.join(C.root, "record", "player.jsonl")
+    if a.text:
+        _append(p, {"text": a.text})
+        print("Noted as something the player has found out.")
+    else:
+        got = _lines(p)
+        print("\n".join("- " + x["text"] for x in got) if got else "The player hasn't found anything out yet.")
+
+
+# ---------- checking a narration draft against the contract ----------
+INNER_YOU = re.compile(r"\byou (feel|felt|think|thought|realis|realiz|sense|sensed|know|knew|wonder|suspect|can tell|notice that|are sure)\w*\b|"
+                       r"\byour (heart|stomach|gut|mind|instincts?) \w+|\ba (chill|shiver) (runs|ran|goes|went)\b", re.I)
+INNER_THEM = r"\b{name}\b[^.!?\n]{{0,40}}?\b(feels|felt|thinks|thought|resents|fears|is hiding|was hiding|is lying|was lying|secretly|knows that|realises|realizes|wants to|is afraid)\b"
+QUEST = re.compile(r"\b(would|could|can|will) you (help|find|bring|retrieve|fetch|deliver|kill|rescue|investigate|look into|recover)\b|"
+                   r"\bI need (you|someone) to\b|\ba job for you\b|\byou'?ll be (paid|rewarded)\b|\breward\b", re.I)
+WORKINGS = re.compile(r"\b(brief|chamber|engine|mood band|tetrad|stratagem|inclination|compulsion score|the box)\b", re.I)
+SAID = r"\b{name}\b[^.!?\n]{{0,30}}?\b(says|said|asks|asked|replies|replied|nods|smiles|laughs|whispers)\b"
+
+
+def _shingles(text, k=6):
+    w = re.findall(r"[a-z']+", text.lower())
+    return {" ".join(w[i:i + k]) for i in range(len(w) - k + 1)}
+
+
+def cmd_check(a, C):
+    text = a.text if a.text is not None else open(a.file, encoding="utf-8").read()
+    flags = []
+    sentences = re.split(r"(?<=[.!?])\s+|\n", text)
+
+    def flag(kind, s_):
+        flags.append("%s: \"%s\"" % (kind, s_.strip()[:120]))
+    people = [load(p) for p in C.everyone()]
+    asks = _lines(os.path.join(C.root, "record", "asks.jsonl"))
+    may = {x["name"] for x in asks[-20:] if x.get("result") == "may"}
+    for s_ in sentences:
+        dialogue = '"' in s_ or "“" in s_
+        if INNER_YOU.search(s_) and not dialogue:
+            flag("narrates the player's inner life", s_)
+        for n in people:
+            nm = re.escape(n["name"].split()[0])
+            if not dialogue and re.search(INNER_THEM.format(name=nm), s_, re.I):
+                flag("states %s's inner life as fact" % n["name"], s_)
+            if n["condition"] in ("dead", "comatose") and re.search(SAID.format(name=nm), s_, re.I):
+                flag("%s is %s but acts" % (n["name"], n["condition"]), s_)
+        if QUEST.search(s_) and not may:
+            flag("an offer of a task nobody was cleared to ask for", s_)
+        if WORKINGS.search(s_):
+            flag("mentions the workings", s_)
+    briefs = _lines(os.path.join(C.root, "record", "briefs.jsonl"))
+    if briefs:
+        last = briefs[-1]["text"]
+        for m in re.finditer(r"A thought has come to them: (.+?)\. ", last):
+            for part in m.group(1).split(", and somehow "):
+                if len(part) > 6 and part.lower() in text.lower():
+                    flag("narrates a thought instead of its ripple", part)
+        pasted = _shingles(last, 7) & _shingles(text, 7)
+        if pasted:
+            flag("copies the brief word for word", sorted(pasted)[0])
+    past = _lines(os.path.join(C.root, "record", "narration.jsonl"))[-10:]
+    mine = _shingles(text)
+    seen = set()
+    for x in past:
+        seen |= set(x["s"])
+    rep = sorted(h for h in mine if hashlib.sha1(h.encode()).hexdigest()[:10] in seen)
+    if rep:
+        flag("repeats a phrase from recent scenes", rep[0])
+    if not a.dry:
+        _append(os.path.join(C.root, "record", "narration.jsonl"),
+                {"s": sorted(hashlib.sha1(h.encode()).hexdigest()[:10] for h in mine)})
+    print("\n".join(["Draft breaks the narration rules in %d place%s:" % (len(flags), "" if len(flags) == 1 else "s")]
+                    + ["  " + f for f in flags]) if flags else "Draft passes the checks. (They catch plain breaches, not every one.)")
+    if flags:
+        sys.exit(1)
+
+
+# ---------- a campaign inspector, for the people at the table, never the narrator ----------
+def cmd_inspect(a, C):
+    import html as H
+    out = os.path.abspath(a.out)
+    real_root = os.path.realpath(C.root)
+    if os.path.commonpath([real_root, os.path.realpath(out)]) == real_root:
+        sys.exit("Write the inspector page somewhere outside the campaign folder.")
+    E = engine()
+    people = [load(p) for p in C.everyone()]
+    facts = _lines(os.path.join(C.root, "record", "facts.jsonl"))
+    found = _lines(os.path.join(C.root, "record", "player.jsonl"))
+    j = journal(C)
+    e = H.escape
+    rows = []
+    for n in people:
+        sp = E.speech_of(n); st = E.strain_of(n); tp = E.tempo_of(n)
+        rows.append("<tr><td><b>%s</b><br><small>%s · %s</small></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
+            e(n["name"]), e(n.get("id", "")), e(n["condition"]),
+            e(", ".join("%s %s" % (E.fmt_frac(v["frac"]), v["style"]) for v in n["voices"])),
+            e(" ".join("%s%+d" % (E.AX[i][0], n["axes"][i]) for i in range(7))),
+            e("%s%s; %s" % (sp["main"], " + " + sp["side"] if sp["side"] else "", sp["bend"])),
+            e("; ".join("%s: %s" % (k, v) for k, v in st.items())),
+            e("grief ×%s, fade ×%s, recall ×%s" % (tp["grief"], tp["fade"], tp["recall"]))))
+    names = [n["name"] for n in people]
+    import math as _m
+    R, cx, cy = 230, 300, 280
+    pos = {nm: (cx + R * _m.cos(2 * _m.pi * i / max(1, len(names))), cy + R * _m.sin(2 * _m.pi * i / max(1, len(names))))
+           for i, nm in enumerate(names)}
+    edges = []
+    for n in people:
+        for who, t in n.get("trust", {}).items():
+            if who in pos and who != n["name"]:
+                v = t.get("bedrock", 0) + t.get("surface", 0)
+                col = "#2f855a" if v > 0 else "#c53030" if v < 0 else "#a0aec0"
+                (x1, y1), (x2, y2) = pos[n["name"]], pos[who]
+                edges.append('<line x1="%.0f" y1="%.0f" x2="%.0f" y2="%.0f" stroke="%s" stroke-width="%d" opacity=".6"><title>%s → %s: %+d</title></line>'
+                             % (x1, y1, x2, y2, col, 1 + abs(v) // 2, e(n["name"]), e(who), v))
+    nodes = "".join('<circle cx="%.0f" cy="%.0f" r="7" fill="#2b6cb0"/><text x="%.0f" y="%.0f" font-size="12" text-anchor="middle">%s</text>'
+                    % (x, y, x, y - 12, e(nm)) for nm, (x, y) in pos.items())
+    beliefs = []
+    for n in people:
+        for b in n.get("knows", []):
+            beliefs.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%.2f</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
+                e(n["name"]), e(b["subject"]), e(b["claim"]), e(b["source"] + (" from " + b["from"] if b.get("from") else "")),
+                b["confidence"], e(b["meaning"]), e(", ".join(b["distortions"])), e(b.get("fact") or "")))
+    mem = []
+    for n in people:
+        for m in n.get("memory", [])[-10:]:
+            mem.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
+                e(n["name"]), m.get("day", ""), e(m["event"]), e(m.get("with", "")), e(m.get("took") or "")))
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Campaign inspector</title><style>
+:root{--bg:#fbfaf7;--fg:#1a202c;--mut:#5a6577;--line:#e2ddd3}
+@media (prefers-color-scheme:dark){:root{--bg:#16181d;--fg:#e6e6e6;--mut:#9aa3b2;--line:#2d3139}}
+body{background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif;margin:0;padding:16px;max-width:1200px;margin:auto}
+h1{font-size:22px}h2{font-size:16px;margin-top:28px;border-bottom:1px solid var(--line);padding-bottom:4px}
+.warn{color:var(--mut)}table{border-collapse:collapse;width:100%%;display:block;overflow-x:auto}
+td,th{border-bottom:1px solid var(--line);padding:6px 8px;vertical-align:top;text-align:left}small{color:var(--mut)}
+svg{max-width:100%%;height:auto}text{fill:var(--fg)}</style></head><body>
+<h1>Campaign inspector</h1><p class="warn">For the people at the table. Everything here, numbers and truth included, is what the
+narrator must never see.</p>
+<h2>People (%d)</h2><table><tr><th>Who</th><th>Voices</th><th>Traits</th><th>Talk</th><th>Under strain</th><th>Tempo</th></tr>%s</table>
+<h2>Regard between them</h2><svg viewBox="0 0 600 560">%s%s</svg>
+<h2>What happened (facts)</h2><ul>%s</ul>
+<h2>What people believe</h2><table><tr><th>Who</th><th>About</th><th>Claim</th><th>Source</th><th>Sure</th><th>Meaning</th><th>Gone wrong</th><th>Fact</th></tr>%s</table>
+<h2>What the player has found out</h2><ul>%s</ul>
+<h2>Recent memories</h2><table><tr><th>Who</th><th>Day</th><th>Event</th><th>With</th><th>Took it by</th></tr>%s</table>
+<h2>Journal</h2><p>%d recorded actions; seed %s.</p></body></html>""" % (
+        len(people), "".join(rows), "".join(edges), nodes,
+        "".join("<li><b>%s</b> %s</li>" % (e(f["id"]), e(f["text"])) for f in facts) or "<li>None recorded.</li>",
+        "".join(beliefs), "".join("<li>%s</li>" % e(f["text"]) for f in found) or "<li>Nothing yet.</li>",
+        "".join(mem), max(0, len(j) - 1), e(j[0]["seed"]) if j else "none")
+    with open(out, "w", encoding="utf-8") as fh:
+        fh.write(page)
+    print("Inspector page written to %s (for you, not the narrator)." % out)
+
+
+# ---------- structured output ----------
+def as_structured(text):
+    """Turn a brief into entries: each top-level line, with its indented details as label: value."""
+    entries = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        if line.startswith("  ") and entries:
+            body = line.strip()
+            k, sep, v = body.partition(": ")
+            if sep and len(k) < 40:
+                entries[-1]["details"].setdefault(k, []).append(v)
+            else:
+                entries[-1]["details"].setdefault("note", []).append(body)
+        else:
+            entries.append({"text": line.strip(), "details": {}})
+    return entries
+
+
+def main(replaying=False):
     ap = argparse.ArgumentParser(description="The Chamber of Output: plain briefs for roleplay narration")
     ap.add_argument("--campaign", default=os.environ.get("CHAMBER_CAMPAIGN", "campaign"))
+    ap.add_argument("--json", action="store_true", help="structured output: entries with their details")
+    ap.add_argument("--seed", help="the seed for a new campaign (fixed once, then kept)")
     sp = ap.add_subparsers(dest="cmd")
     x = sp.add_parser("setting"); x.add_argument("dials", help="Violence,Order,Scarcity,Strangeness,Faith,Power,Deceit, 0-3 each"); x.set_defaults(f=cmd_setting)
     x = sp.add_parser("week"); x.set_defaults(f=cmd_week)
@@ -885,10 +1418,83 @@ def main():
     x.add_argument("--already", action="store_true"); x.set_defaults(f=cmd_ask)
     x = sp.add_parser("status"); x.add_argument("name"); x.add_argument("condition", choices=["present", "dead", "comatose", "amnesiac"])
     x.add_argument("--restore", action="store_true"); x.set_defaults(f=cmd_status)
+    x = sp.add_parser("rename"); x.add_argument("old"); x.add_argument("new"); x.set_defaults(f=cmd_rename)
+    x = sp.add_parser("migrate"); x.set_defaults(f=cmd_migrate)
+    x = sp.add_parser("doctor"); x.add_argument("--fix", action="store_true"); x.set_defaults(f=cmd_doctor)
+    x = sp.add_parser("backups"); x.set_defaults(f=cmd_backups)
+    x = sp.add_parser("restore"); x.add_argument("which", nargs="?"); x.set_defaults(f=cmd_restore)
+    x = sp.add_parser("replay"); x.add_argument("archive", nargs="?"); x.set_defaults(f=cmd_replay)
+    x = sp.add_parser("fact"); x.add_argument("text"); x.add_argument("--id"); x.set_defaults(f=cmd_fact)
+    x = sp.add_parser("learn"); x.add_argument("name"); x.add_argument("--about", required=True)
+    x.add_argument("--claim", required=True); x.add_argument("--how", required=True, choices=list(HOW))
+    x.add_argument("--from", dest="from_"); x.add_argument("--secret", action="store_true")
+    x.add_argument("--stressed", action="store_true"); x.add_argument("--fact"); x.set_defaults(f=cmd_learn)
+    x = sp.add_parser("tell"); x.add_argument("teller"); x.add_argument("hearer"); x.add_argument("--about", required=True)
+    x.set_defaults(f=cmd_tell)
+    x = sp.add_parser("spread"); x.add_argument("--about", required=True); x.add_argument("--among", nargs="+", required=True)
+    x.add_argument("--times", type=int, default=6); x.set_defaults(f=cmd_spread)
+    x = sp.add_parser("accounts"); x.add_argument("names", nargs="*"); x.add_argument("--about", required=True)
+    x.set_defaults(f=cmd_accounts)
+    x = sp.add_parser("found"); x.add_argument("text", nargs="?"); x.set_defaults(f=cmd_found)
+    x = sp.add_parser("check"); x.add_argument("--text"); x.add_argument("--file")
+    x.add_argument("--dry", action="store_true", help="don't remember this draft for repetition checks"); x.set_defaults(f=cmd_check)
+    x = sp.add_parser("inspect"); x.add_argument("--out", required=True); x.set_defaults(f=cmd_inspect)
+    argv_all = sys.argv[1:]
     a = ap.parse_args()
     if not getattr(a, "f", None):
         ap.print_help(); return
-    a.f(a, Campaign(a.campaign))
+    if a.cmd == "check" and a.text is None and not a.file:
+        sys.exit("check needs --text or --file.")
+    C = Campaign(a.campaign)
+    rec, skip = [], 0
+    for i, t in enumerate(argv_all):  # the action itself, without where or how it was printed
+        if skip:
+            skip -= 1; continue
+        if t in ("--campaign", "--seed"):
+            skip = 1; continue
+        if t.startswith(("--campaign=", "--seed=")) or t == "--json":
+            continue
+        rec.append(t)
+    mut = a.cmd in MUTATING and not (a.cmd == "round" and a.look)
+    seed, count = campaign_seed(C, a.seed)
+    outer = random.getstate()
+    random.seed("%s:%d:%s" % (seed, count, a.cmd))
+    if not replaying and (a.cmd in BIG or a.cmd in ("load", "restore")) or (a.cmd == "doctor" and a.fix):
+        if not replaying:
+            auto_backup(C, a.cmd, rotate=a.cmd != "restore")  # never rotate away the backup being restored
+    before = state_hash(C.root) if mut else None
+    E = engine()
+    readonly = not mut and a.cmd not in ("load", "restore", "doctor", "migrate", "check", "replay", "ask", "save")
+    real_save = E.save
+    if readonly:
+        _READONLY[0] = True
+        E.save = lambda *x, **k: None
+    buf = io.StringIO() if a.json else None
+    refused = None
+    try:
+        if buf is not None:
+            with contextlib.redirect_stdout(buf):
+                a.f(a, C)
+        else:
+            a.f(a, C)
+    except SystemExit as e:
+        refused = e
+    finally:
+        _READONLY[0] = False
+        E.save = real_save
+        random.setstate(outer)
+        if mut:
+            with open(journal_path(C), "a", encoding="utf-8") as fh:
+                fh.write(json.dumps({"argv": rec, "before": before, "after": state_hash(C.root)}, ensure_ascii=False) + "\n")
+    if buf is not None:
+        msg = str(refused) if refused is not None and refused.code not in (0, None) else None
+        print(json.dumps({"command": a.cmd, "ok": msg is None and not (refused is not None and refused.code == 1),
+                          "refused": msg, "entries": as_structured(buf.getvalue())}, ensure_ascii=False, indent=1))
+        if refused is not None:
+            raise SystemExit(1 if refused.code else 0)
+        return
+    if refused is not None:
+        raise refused
 
 
 if __name__ == "__main__":

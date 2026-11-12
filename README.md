@@ -93,6 +93,29 @@ senses, no quests unless `ask` allows one, thoughts shown only by their ripple.
 | `ask` | Whether someone would ask for help, and with what. |
 | `status` | Dead, comatose, amnesiac, or back. |
 | `save`, `load` | Carry a campaign between chats as a zip; everyone remembers where they were. |
+| `fact`, `learn`, `tell`, `spread`, `accounts`, `found` | What happened; what each person believes and where they got it; rumours; what the player has found out. Four domains, never mixed. |
+| `rename` | A new name for the same person; their identity and everyone's memory of them carry over. |
+| `check` | Check a narration draft against the laws (inner life, stated feelings, unasked quests, narrated thoughts, the dead acting, copied or repeated phrasing). |
+| `migrate`, `doctor`, `backups`, `restore` | Bring old campaigns forward; find and set aside damage; automatic backups before big changes. |
+| `replay` | Rebuild the campaign from its seed and journal (optionally from a save) and confirm every step comes out the same. |
+| `inspect` | A local HTML page of the whole campaign, numbers and truth included, for you, never the narrator. |
+
+**Every action is reproducible.** A campaign has one seed, fixed when it starts (`--seed` to choose
+it). Every action that changes the world is journalled with a fingerprint of the state before and
+after, and each action draws its randomness from the seed and its place in the journal. `replay`
+rebuilds the campaign from scratch, or from a save, and checks each step lands exactly where it did;
+when a character does something strange, you can rerun the moment and look. Looking never changes
+anything: `sheet`, `round --look`, `ask`, `accounts`, `check --dry`, `inspect` and `doctor` leave
+the world exactly as it was, and the tests prove it.
+
+**Structured output.** Add `--json` to any command for the same plain content as entries with
+their details, plus whether it was refused, for programs that drive or validate the chamber.
+
+**Identity and schema.** Everyone has an id from birth that never changes; `rename` changes the name
+and carries every tie, memory and belief across. Files carry a schema version; `migrate` brings
+older campaigns forward without changing who anyone is, `doctor` finds damaged or conflicting files
+(and with `--fix` sets them aside), and automatic backups are kept beside the campaign before
+every day, migration, rename, status change, load and restore.
 
 **Saving and loading are strict.** `save` writes only the campaign's own files (the world, people,
 places, circles and the sealed record), never links or anything outside the folder, and never into
@@ -115,6 +138,11 @@ python tests/run_tests.py --days 120 --seed 7
 hostile archives (path tricks, links, stray or oversized files, broken or wrong-shaped JSON,
 too many files), that `--replace` leaves nothing of the old campaign, that a failed load changes
 nothing, and that a replaced engine-and-lock pair is caught by `--verify`.
+
+`python tests/test_integrity.py` checks that looking changes nothing, replay reproduces every step
+and notices divergence, rename and migrate keep identity, doctor finds and sets aside damage,
+restore works, `--json` is valid, beliefs stay beliefs, and `check` catches plain breaches while
+passing clean prose.
 
 `run_tests.py` runs a long random campaign through every command and option and fails on any crash, any digit
 in a brief, or any of the engine's internal words (trait names, need names, manner labels, terms

@@ -120,13 +120,36 @@ def main():
             go(["habit", random.choice(NAMES), random.choice(["drinking", "praying", "fighting", "whittling"])], user_text=NAMES)
         if random.random() < 0.3:
             go(["ask", random.choice(NAMES), "--touched"], user_text=NAMES)
+        subjects = ["the fire at the mill", "the missing ledger", "you"]
+        claims = ["it was set on purpose", "someone took it at night", "you were seen near the quay"]
+        if random.random() < 0.35:
+            k = random.randrange(3)
+            argv = ["learn", random.choice(NAMES), "--about", subjects[k], "--claim", claims[k],
+                    "--how", random.choice(list(ch.HOW))]
+            if random.random() < 0.5: argv += ["--from", random.choice(NAMES)]
+            if random.random() < 0.2: argv.append("--secret")
+            if random.random() < 0.3: argv.append("--stressed")
+            go(argv, user_text=NAMES + subjects + claims)
+        if random.random() < 0.3:
+            a_, b_ = random.sample(NAMES, 2)
+            go(["tell", a_, b_, "--about", random.choice(subjects)], user_text=NAMES + subjects + claims)
+        if random.random() < 0.15:
+            go(["spread", "--about", random.choice(subjects), "--among"] + random.sample(NAMES, 4),
+               user_text=NAMES + subjects + claims)
+        if random.random() < 0.2:
+            go(["accounts", "--about", random.choice(subjects)], user_text=NAMES + subjects + claims)
+        if random.random() < 0.05:
+            go(["fact", "Someone moved the ledger."])
+        if random.random() < 0.05:
+            go(["found", "The ledger was moved."])
         if day % 7 == 0:
             go(["week"])
         if day == a.days // 2:
             go(["status", NAMES[-1], "dead"], user_text=NAMES)
     for nm in NAMES:
         go(["sheet", nm], user_text=NAMES)
-    shutil.rmtree(camp, ignore_errors=True)
+    for d_ in (camp, camp + ".backups", camp + ".quarantine"):
+        shutil.rmtree(d_, ignore_errors=True)
     print("Chamber test: %d commands over %d days, %d clean refusals." % (outputs, a.days, refusals))
     seen = set()
     for c in crashes:

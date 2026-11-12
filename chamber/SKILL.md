@@ -28,7 +28,12 @@ work only from what it says.
    thought. Show only what the brief says it shows as (a pause, a name under the breath, half a
    sentence caught), or the words they let slip. If they wonder where it came from, their guess is
    the one the brief gives; it may be wrong, and nobody in the story knows how thoughts arise.
-6. **Reads and clues.** When the player studies someone, a tell shows only at or after a lie,
+6. **Beliefs, not truth.** Characters speak only from what they believe ("Believes about you…",
+   `accounts`). A belief may be wrong, half-heard or grown in the telling; play it as they hold it.
+   Never let anyone know what they couldn't, and never let a brief's belief settle what happened.
+7. **Most things mean nothing.** Ordinary business, honest misunderstandings, mundane oddities and
+   most thoughts carry no meaning. Don't turn them into clues or foreshadowing.
+8. **Reads and clues.** When the player studies someone, a tell shows only at or after a lie,
    never before. Nothing ever confirms that someone is telling the truth. A failed read gets the
    ordinary description of the moment. Put evidence in objects and places.
 
@@ -54,6 +59,14 @@ python chamber.py habit "Fenwick" drinking
 python chamber.py ask "Fenwick" --touched
 python chamber.py status "Fenwick" dead
 python chamber.py week
+python chamber.py fact "The miller set the fire himself."      # what happened; nobody knows it yet
+python chamber.py learn "Fenwick" --about "the fire" --claim "the miller set it" --how saw   # saw|heard|read|worked-out|suspects
+python chamber.py tell "Fenwick" "Tomas Coyle" --about "the fire"        # passes it on; it may change
+python chamber.py spread --about "the fire" --among "Fenwick" "Tomas Coyle" "Mairead Coyle"
+python chamber.py accounts --about "the fire"     # who believes what (subject "you" = the player)
+python chamber.py found "The fire was set from inside."         # what the player has found out
+python chamber.py check --file draft.txt          # check a draft against the laws before posting it
+python chamber.py rename "Tomas Coyle" "Tom Coyle"               # same person, new name
 python chamber.py save session1                  # at the end of a session: a zip to keep
 python chamber.py load session1.zip              # at the start of the next: everyone remembers
 ```
@@ -80,7 +93,10 @@ python chamber.py load session1.zip              # at the start of the next: eve
    `--symbol` if the victim stood for something, such as a priest for Faith or a judge for Justice),
    then `round ... --violence --victim X --attacker Y` for how they come across afterwards. The one
    who did it gets their own response. Write it the way the brief says to.
-7. **Afterwards**, record what mattered with `event` (kindness, rescue, gift, respect, betrayal,
+7. **Before posting**, you may run `check` on the draft: it flags the player's inner life, stated
+   feelings, unasked-for tasks, narrated thoughts, the dead acting, copied brief lines and repeated
+   phrasing. It catches plain breaches, not every one; the laws still apply.
+8. **Afterwards**, record what mattered with `event` (kindness, rescue, gift, respect, betrayal,
    humiliation, threat, lie-caught, triumph, loss, reunion, joy, …) and anything someone keeps
    doing with `habit`. People remember. Use `--to NAME` when the event involved someone other than
    the player, and `--about NAME` for a loss.
@@ -101,6 +117,10 @@ python chamber.py load session1.zip              # at the start of the next: eve
   if they're pressed or alone with someone they trust.
 - **If it comes to opposition…**: how they would oppose someone, if the scene turns that way.
 - **Their day so far**: something that happened to them today; it may come up in talk, or not.
+- **Under strain, as always**: how this person takes being pressed; it's who they are. **Carries
+  from before**: what they remember with this person, and how they took it.
+- **Believes about you**: what they think they know, where they got it, how sure they are.
+- **Ordinary business** and **an honest misunderstanding**: texture; nothing more to them.
 - **Offscreen**: something has shifted for them. Let it show in what they do; never explain it.
 - **Something odd**: a small strange beat. Leave it unexplained.
 - **How to write it** (violence): the register to use. **Somewhere in it, unexplained**: details
@@ -110,5 +130,9 @@ python chamber.py load session1.zip              # at the start of the next: eve
 of a session run `save`, and give the user the zip. At the start of the next, ask for it and run
 `load`. Without it, everyone starts over and remembers nothing. Load accepts only a campaign the chamber saved; if it refuses an archive,
 tell the user it isn't a campaign save, and don't try to unpack it yourself.
+
+Never run `inspect`, `replay`, `doctor` or `restore` unless the user asks, and never open the
+campaign's backups, quarantine or `record/` folder: those are for the people at the table.
+`--json` gives the same briefs as structured entries, for programs.
 
 If code can't run where you are, tell the user the chamber needs code execution to work.
