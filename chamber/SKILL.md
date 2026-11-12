@@ -90,6 +90,11 @@ python chamber.py load session1.zip              # at the start of the next: eve
 - **"X toward you: cool; polite, watching your hands."** How they come across right now. Show it
   through behaviour and speech, never by naming it.
 - **Colour** and **Speech**: details to weave in. **Habits of manner**: small things they do.
+- **How they talk**: their own way of speaking (register, length, habits of speech, slang,
+  how they handle the truth). Write their dialogue in it, every time; "Right now" and "Here" say
+  how the mood and the moment bend it. Slang is described by how it's made: invent words that fit
+  the world, and keep them the same for that person. How they handle the truth is never a sign of
+  lying or of honesty; don't let the narration treat it as one.
 - **On the page**: punctuation that suits them now (an exclamation, a semicolon, a word in
   CAPITALS when they shout). Use it a few times a scene, never on every line.
 - **Beneath what shows**: what's under their surface, which may show only after a lie, and only

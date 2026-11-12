@@ -2,7 +2,7 @@
 
 The narrator's side of a two-part system for running the people of a roleplay world.
 
-- **[RP-Instructional](https://github.com/KeychainofSolomon/RP-Instructional)** is the engine. It
+- **The engine** lives in its own repository. It
   decides who people are, what happened to them today, how they react and why, how they change,
   what they think. It is all numbers, rules and tables.
 - **The Chamber of Output** (this repository) is what the roleplaying AI actually reads. It drives
@@ -16,7 +16,7 @@ such as where a character's thoughts come from.
 ## How the separation works
 
 ```
-RP-Instructional (engine, rules, tables, sealed thought box)
+engine repository (rules, tables, sealed thought box)
         │   tools/sync_engine.py seals one pinned version of the engine script
         ▼
 chamber/engine.bin + engine.lock     the engine, compressed and pinned; no documentation comes across
@@ -28,7 +28,7 @@ narrating agent                      reads chamber/SKILL.md (meta instructions o
 
 - **Pinned.** The chamber carries one exact engine version, recorded in `engine.lock` with a
   checksum. An engine update never reaches a running campaign by surprise. To move to a newer
-  engine, run `python tools/sync_engine.py --commit <sha>` and commit the result.
+  engine, run `python tools/sync_engine.py --source <engine checkout> --commit <sha>` (or `--repo <git url>`) and commit the result.
 - **Sealed.** The engine travels compressed, and the skill tells the agent never to open it. Its
   documentation never comes across. (This is a separation, not encryption: an agent that
   deliberately decoded the file could read it. It is never told how, or given a reason to.)
@@ -98,7 +98,7 @@ python tests/run_tests.py --days 120 --seed 7
 Runs a long random campaign through every command and option and fails on any crash, any digit
 in a brief, or any of the engine's internal words (trait names, need names, manner labels, terms
 like mood or band). Run with nine seeds (3, 7, 11, 23, 31, 47, 59, 73, 89): 7,978
-commands over 1,080 simulated days, all passing on the shipped code. The engine has its own audit in RP-Instructional.
+commands over 1,080 simulated days, all passing on the shipped code. The engine has its own audit in its own repository.
 
 ## Install
 

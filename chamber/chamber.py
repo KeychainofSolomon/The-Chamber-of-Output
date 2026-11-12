@@ -236,6 +236,17 @@ def person_lines(view, n):
         out.append("  Speech: " + ", ".join(view["speech"]) + ".")
     if view.get("punctuation"):
         out.append("  On the page: " + "; ".join(view["punctuation"]) + ".")
+    tk = view.get("talk")
+    if tk:
+        out.append("  How they talk: %s; %s, %s." % (tk["keys"], tk["register"], tk["length"]))
+        out.append("    Habits of speech: " + "; ".join(tk["habits"]) + ".")
+        if tk.get("tone"):
+            out.append("    Right now: " + tk["tone"] + ".")
+        if tk.get("slang"):
+            out.append("    Their slang: " + "; ".join(tk["slang"]) + ". Invent the words to suit the world.")
+        for h in tk.get("here", []):
+            out.append("    Here: " + h + ".")
+        out.append("    With the truth: " + tk["bend"] + ". Never a tell by itself.")
     qs = [x for x in (quirk_phrase(q) for q in view.get("quirks", [])) if x]
     if qs:
         out.append("  Habits of manner: " + "; ".join(qs) + ".")
@@ -303,6 +314,15 @@ def sheet(n):
     for c in n["compulsions"]:
         L.append("  A pull toward: %s." % thing(c["urge"]))
     L.append("  When things go wrong, they %s." % PROCESS.get(E.processing(n), "carry on"))
+    sp = E.speech_of(n)
+    m = E.SPEECH[sp["main"]]
+    L.append("  How they talk: %s%s; %s, %s." % (m["keys"], (", with something " + E.SPEECH[sp["side"]]["keys"].split(",")[0]
+             + " in it") if sp["side"] else "", E.REG_WORD[sp["reg"]], E.LEN_WORD[m["len"]]))
+    L.append("    Habits of speech: " + "; ".join(m["dev"]) + ".")
+    if sp["slang"]:
+        L.append("    Their slang: " + "; ".join(E.SLANG[x] for x in sp["slang"]) + "." +
+                 (" Drops it in front of authority." if sp["switches"] else ""))
+    L.append("    With the truth: " + E.BEND[sp["bend"]]["base"] + ".")
     L.append("  Small things: " + "; ".join(n["quirks"]) + ".")
     pair = n["contradiction"]["pair"].split("/")
     L.append("  Torn between: %s and %s." % (pair[0].lower(), pair[1].lower()))

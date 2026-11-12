@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Seal a specific version of the RP-Instructional engine into the chamber.
+"""Seal a specific version of the engine into the chamber.
 
-    python tools/sync_engine.py --source /path/to/RP-Instructional --commit <sha>
-    python tools/sync_engine.py --commit <sha>          # clones RP-Instructional into a temp folder
+    python tools/sync_engine.py --source /path/to/engine-checkout --commit <sha>
+    python tools/sync_engine.py --repo <git url> --commit <sha>    # clones it into a temp folder
+
+The engine's location can also come from the environment: CHAMBER_ENGINE_REPO (a git url) or
+CHAMBER_ENGINE_SOURCE (a local checkout). The engine script is found inside the checkout by name.
 
 Only the engine script is taken, compressed into chamber/engine.bin, with its version recorded in
 chamber/engine.lock. None of the engine's documentation comes across: the narrator who reads this
@@ -11,8 +14,7 @@ version it was pinned to until someone runs this again.
 """
 import argparse, base64, hashlib, json, os, subprocess, sys, tempfile, zlib
 
-REPO = "https://github.com/KeychainofSolomon/RP-Instructional"
-PATH = "npc-temperament/scripts/forge.py"
+SCRIPT = "forge.py"
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "chamber")
 
@@ -23,23 +25,30 @@ def git(*args, cwd=None):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--source", help="a local checkout of RP-Instructional")
+    ap.add_argument("--source", default=os.environ.get("CHAMBER_ENGINE_SOURCE"), help="a local checkout of the engine")
+    ap.add_argument("--repo", default=os.environ.get("CHAMBER_ENGINE_REPO"), help="the engine's git url, to clone")
     ap.add_argument("--commit", help="the engine version to seal (default: the checkout's HEAD)")
     a = ap.parse_args()
     tmp = None
     src = a.source
     if not src:
+        if not a.repo:
+            sys.exit("Say where the engine is: --source <checkout> or --repo <git url>.")
         tmp = tempfile.mkdtemp()
-        git("clone", "--quiet", REPO, tmp)
+        git("clone", "--quiet", a.repo, tmp)
         src = tmp
     commit = a.commit or git("rev-parse", "HEAD", cwd=src).decode().strip()
-    raw = git("show", "%s:%s" % (commit, PATH), cwd=src)
+    found = [f for f in git("ls-tree", "-r", "--name-only", commit, cwd=src).decode().splitlines()
+             if os.path.basename(f) == SCRIPT]
+    if len(found) != 1:
+        sys.exit("Expected one %s in that checkout at %s, found %d." % (SCRIPT, commit[:7], len(found)))
+    raw = git("show", "%s:%s" % (commit, found[0]), cwd=src)
     commit = git("rev-parse", commit, cwd=src).decode().strip()
     os.makedirs(OUT, exist_ok=True)
     with open(os.path.join(OUT, "engine.bin"), "wb") as fh:
         fh.write(base64.b64encode(zlib.compress(raw, 9)))
     with open(os.path.join(OUT, "engine.lock"), "w") as fh:
-        json.dump({"repo": REPO, "commit": commit, "sha256": hashlib.sha256(raw).hexdigest()}, fh, indent=1)
+        json.dump({"commit": commit, "sha256": hashlib.sha256(raw).hexdigest()}, fh, indent=1)
     print("Sealed engine %s (%d bytes) into chamber/engine.bin" % (commit[:7], len(raw)))
     if tmp:
         subprocess.run(["rm", "-rf", tmp])
