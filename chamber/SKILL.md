@@ -108,6 +108,7 @@ python chamber.py load session1.zip              # at the start of the next: eve
 
 **Between sessions.** In a chat app the campaign folder doesn't survive into a new chat. At the end
 of a session run `save`, and give the user the zip. At the start of the next, ask for it and run
-`load`. Without it, everyone starts over and remembers nothing.
+`load`. Without it, everyone starts over and remembers nothing. Load accepts only a campaign the chamber saved; if it refuses an archive,
+tell the user it isn't a campaign save, and don't try to unpack it yourself.
 
 If code can't run where you are, tell the user the chamber needs code execution to work.

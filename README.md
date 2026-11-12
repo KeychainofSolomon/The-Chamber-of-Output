@@ -29,9 +29,17 @@ narrating agent                      reads chamber/SKILL.md (meta instructions o
 - **Pinned.** The chamber carries one exact engine version, recorded in `engine.lock` with a
   checksum. An engine update never reaches a running campaign by surprise. To move to a newer
   engine, run `python tools/sync_engine.py --source <engine checkout> --commit <sha>` (or `--repo <git url>`) and commit the result.
-- **Sealed.** The engine travels compressed, and the skill tells the agent never to open it. Its
-  documentation never comes across. (This is a separation, not encryption: an agent that
-  deliberately decoded the file could read it. It is never told how, or given a reason to.)
+- **Sealed, not secret.** The engine travels compressed, and the skill tells the agent never to
+  open it. Its documentation never comes across. This is informational isolation: it keeps the
+  narrator from reading the workings by accident, and keeps the workings out of its context. It is
+  **not** cryptographic security. Anyone, or any agent that deliberately decodes `engine.bin`, can
+  recover the full engine source, so treat it as readable code, never as a place for secrets.
+- **Checked, not authenticated.** The checksum in `engine.lock` catches corruption and accidental
+  edits. It does not prove who published the engine: someone who replaces both files gets a
+  matching pair. To check a pinned engine independently, rebuild it from the engine's own source:
+  `python tools/sync_engine.py --verify --source <engine checkout>` (or `--repo <git url>`). Add
+  `--require-signed` to refuse any engine commit whose signature git can't verify, which works
+  once engine releases are signed and you hold the signer's key.
 - **Translated.** Every engine result passes through a plain-language layer. Internal names
   (trait names, need names, manner labels, scores) are turned into portrayal, or dropped.
 
@@ -86,6 +94,14 @@ senses, no quests unless `ask` allows one, thoughts shown only by their ripple.
 | `status` | Dead, comatose, amnesiac, or back. |
 | `save`, `load` | Carry a campaign between chats as a zip; everyone remembers where they were. |
 
+**Saving and loading are strict.** `save` writes only the campaign's own files (the world, people,
+places, circles and the sealed record), never links or anything outside the folder, and never into
+the campaign folder itself. `load` accepts only those files, in that layout, within size limits (a
+50 MB archive, 10 MB per file, 200 MB unpacked, 5,000 files, no runaway compression), and checks
+that each one reads as what it claims to be before anything changes. The new campaign is built
+aside and swapped in whole: with `--replace` nothing of the old campaign survives, and a bad
+archive leaves the current campaign untouched.
+
 Campaigns live in a folder (`--campaign PATH`, default `./campaign`). Its `record/` folder holds
 a sealed record of how thoughts arose, for the people at the table, never for the narrator.
 
@@ -95,9 +111,14 @@ a sealed record of how thoughts arose, for the people at the table, never for th
 python tests/run_tests.py --days 120 --seed 7
 ```
 
-Runs a long random campaign through every command and option and fails on any crash, any digit
+`python tests/test_archive.py --engine-source <engine checkout>` checks saving and loading against
+hostile archives (path tricks, links, stray or oversized files, broken or wrong-shaped JSON,
+too many files), that `--replace` leaves nothing of the old campaign, that a failed load changes
+nothing, and that a replaced engine-and-lock pair is caught by `--verify`.
+
+`run_tests.py` runs a long random campaign through every command and option and fails on any crash, any digit
 in a brief, or any of the engine's internal words (trait names, need names, manner labels, terms
-like mood or band). Run with nine seeds (3, 7, 11, 23, 31, 47, 59, 73, 89): 7,978
+like mood or band). Run with nine seeds (3, 7, 11, 23, 31, 47, 59, 73, 89): about 8,000
 commands over 1,080 simulated days, all passing on the shipped code. The engine has its own audit in its own repository.
 
 ## Install

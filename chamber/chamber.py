@@ -692,28 +692,143 @@ def cmd_status(a, C):
     print(err or "%s is now %s." % (a.name, a.condition))
 
 
+# ---------- carrying a campaign between sessions ----------
+# A campaign archive may only hold the campaign's own files, in its own layout, within size limits,
+# with no links, and with every file readable as what it claims to be. Loading builds the new
+# campaign aside and swaps it in whole; nothing of the old one survives a replace, and a bad archive
+# changes nothing.
+ARCHIVE_MAX = 50 * 1024 * 1024          # the archive itself
+UNPACKED_MAX = 200 * 1024 * 1024        # everything in it, unpacked
+FILE_MAX = 10 * 1024 * 1024             # any one file, unpacked
+FILES_MAX = 5000
+RATIO_MAX = 200                         # unpacked size over packed size, per file
+MEMBER = re.compile(r"^(world\.json|(cast|places|circles)/[\w-]{1,120}\.json|record/[\w.-]{1,120}\.jsonl)$")
+
+
+def _campaign_files(root):
+    """The campaign's own files: right layout, regular files, never links, never outside the folder."""
+    real_root = os.path.realpath(root)
+    keep, skipped = [], 0
+    for dirpath, dirs, files in os.walk(root, followlinks=False):
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(dirpath, d))]
+        for f in files:
+            full = os.path.join(dirpath, f)
+            rel = os.path.relpath(full, root).replace(os.sep, "/")
+            if (os.path.islink(full) or not os.path.isfile(full) or not MEMBER.match(rel)
+                    or os.path.commonpath([real_root, os.path.realpath(full)]) != real_root):
+                skipped += 1
+                continue
+            keep.append((full, rel))
+    return keep, skipped
+
+
 def cmd_save(a, C):
     import zipfile
     out = a.file if a.file.endswith(".zip") else a.file + ".zip"
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-        for root, _, files in os.walk(C.root):
-            for f in files:
-                full = os.path.join(root, f)
-                z.write(full, os.path.relpath(full, C.root))
-    print("Campaign saved to %s. Keep it; load it next time to carry on." % out)
+    real_root = os.path.realpath(C.root)
+    if os.path.commonpath([real_root, os.path.realpath(os.path.abspath(out))]) == real_root:
+        sys.exit("Save it somewhere outside the campaign folder.")
+    keep, skipped = _campaign_files(C.root)
+    if len(keep) > FILES_MAX or sum(os.path.getsize(f) for f, _ in keep) > UNPACKED_MAX:
+        sys.exit("This campaign is too large to save as one archive.")
+    tmp = out + ".partial"
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+        for full, rel in keep:
+            with open(full, "rb") as fh:
+                z.writestr(rel, fh.read())
+    os.replace(tmp, out)
+    print("Campaign saved to %s. Keep it; load it next time to carry on.%s" % (
+        out, " (Left out some files that aren't part of a campaign.)" if skipped else ""))
+
+
+def _valid(rel, data):
+    """Each file must be what its place in the layout says it is."""
+    try:
+        text = data.decode("utf-8")
+        if rel.endswith(".jsonl"):
+            for line in text.splitlines():
+                if line.strip() and not isinstance(json.loads(line), dict):
+                    return False
+            return True
+        obj = json.loads(text)
+    except (UnicodeDecodeError, ValueError):
+        return False
+    if not isinstance(obj, dict):
+        return False
+    if rel == "world.json":
+        dl = obj.get("dials")
+        return isinstance(dl, list) and len(dl) == 7 and all(isinstance(x, int) and 0 <= x <= 3 for x in dl)
+    if rel.startswith("cast/"):
+        ax = obj.get("axes")
+        return (isinstance(obj.get("name"), str) and isinstance(ax, list) and len(ax) == 7
+                and all(isinstance(x, int) and -3 <= x <= 3 for x in ax)
+                and isinstance(obj.get("voices"), list) and obj["voices"]
+                and isinstance(obj.get("needs"), dict) and isinstance(obj.get("condition"), str))
+    return isinstance(obj.get("name"), str)
 
 
 def cmd_load(a, C):
-    import zipfile
-    if not os.path.exists(a.file):
+    import shutil, stat, tempfile, zipfile
+    if not os.path.isfile(a.file):
         sys.exit("No such file: %s" % a.file)
+    if os.path.getsize(a.file) > ARCHIVE_MAX:
+        sys.exit("That archive is too large to be a campaign.")
+    if not zipfile.is_zipfile(a.file):
+        sys.exit("That archive isn't a campaign.")
+    has_state = os.path.exists(C.world) or any(os.listdir(os.path.join(C.root, d)) for d in ("cast", "places", "circles"))
+    if has_state and not a.replace:
+        sys.exit("This campaign folder already has people in it. Use --replace to overwrite it.")
+    files, total = {}, 0
     with zipfile.ZipFile(a.file) as z:
-        for m in z.namelist():
-            if m.startswith("/") or ".." in m.split("/"):
+        infos = z.infolist()
+        if len(infos) > FILES_MAX:
+            sys.exit("That archive has too many files to be a campaign.")
+        for info in infos:
+            name = info.filename
+            if info.is_dir():
+                continue
+            mode = info.external_attr >> 16
+            if stat.S_ISLNK(mode) or not MEMBER.match(name) or name in files:
                 sys.exit("That archive isn't a campaign.")
-        if any(os.listdir(os.path.join(C.root, d)) for d in ("cast", "places", "circles")) and not a.replace:
-            sys.exit("This campaign folder already has people in it. Use --replace to overwrite it.")
-        z.extractall(C.root)
+            if info.file_size > FILE_MAX or (info.compress_size and info.file_size / info.compress_size > RATIO_MAX
+                                             and info.file_size > 1024 * 1024):
+                sys.exit("That archive holds a file too large to be part of a campaign.")
+            with z.open(info) as fh:
+                data = fh.read(FILE_MAX + 1)
+            total += len(data)
+            if len(data) > FILE_MAX or total > UNPACKED_MAX:
+                sys.exit("That archive is too large to be a campaign.")
+            if not _valid(name, data):
+                sys.exit("That archive isn't a campaign: %s doesn't read as one." % name)
+            files[name] = data
+    if not any(n.startswith("cast/") for n in files) and "world.json" not in files:
+        sys.exit("That archive isn't a campaign: there's nobody in it.")
+    root = os.path.abspath(C.root)
+    parent = os.path.dirname(root)
+    fresh = tempfile.mkdtemp(prefix=".incoming-", dir=parent)
+    try:
+        for sub in ("cast", "places", "circles", "record"):
+            os.makedirs(os.path.join(fresh, sub))
+        for name, data in files.items():
+            with open(os.path.join(fresh, *name.split("/")), "wb") as fh:
+                fh.write(data)
+        old = None
+        if os.path.exists(root):
+            old = tempfile.mkdtemp(prefix=".outgoing-", dir=parent)
+            os.rmdir(old)
+            os.rename(root, old)
+        try:
+            os.rename(fresh, root)
+        except OSError:
+            if old:
+                os.rename(old, root)
+            raise
+        fresh = None
+        if old:
+            shutil.rmtree(old, ignore_errors=True)
+    finally:
+        if fresh:
+            shutil.rmtree(fresh, ignore_errors=True)
     print("Campaign loaded. Everyone remembers where they were.")
 
 

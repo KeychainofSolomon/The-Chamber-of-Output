@@ -4,6 +4,9 @@
     python tools/sync_engine.py --source /path/to/engine-checkout --commit <sha>
     python tools/sync_engine.py --repo <git url> --commit <sha>    # clones it into a temp folder
 
+    python tools/sync_engine.py --verify --source <checkout>       # check the sealed engine against the source
+    python tools/sync_engine.py --verify --require-signed ...      # ...and require a valid signed commit
+
 The engine's location can also come from the environment: CHAMBER_ENGINE_REPO (a git url) or
 CHAMBER_ENGINE_SOURCE (a local checkout). The engine script is found inside the checkout by name.
 
@@ -28,7 +31,17 @@ def main():
     ap.add_argument("--source", default=os.environ.get("CHAMBER_ENGINE_SOURCE"), help="a local checkout of the engine")
     ap.add_argument("--repo", default=os.environ.get("CHAMBER_ENGINE_REPO"), help="the engine's git url, to clone")
     ap.add_argument("--commit", help="the engine version to seal (default: the checkout's HEAD)")
+    ap.add_argument("--verify", action="store_true",
+                    help="seal nothing; rebuild the engine from the source at the locked commit and compare")
+    ap.add_argument("--require-signed", action="store_true",
+                    help="refuse a commit whose signature git cannot verify (needs the signer's key)")
     a = ap.parse_args()
+    if a.verify:
+        with open(os.path.join(OUT, "engine.lock")) as fh:
+            lock = json.load(fh)
+        with open(os.path.join(OUT, "engine.bin"), "rb") as fh:
+            sealed = zlib.decompress(base64.b64decode(fh.read()))
+        a.commit = lock["commit"]
     tmp = None
     src = a.source
     if not src:
@@ -44,6 +57,18 @@ def main():
         sys.exit("Expected one %s in that checkout at %s, found %d." % (SCRIPT, commit[:7], len(found)))
     raw = git("show", "%s:%s" % (commit, found[0]), cwd=src)
     commit = git("rev-parse", commit, cwd=src).decode().strip()
+    if a.require_signed:
+        r = subprocess.run(["git", "verify-commit", commit], cwd=src, capture_output=True)
+        if r.returncode:
+            sys.exit("Commit %s has no signature git can verify: %s" % (commit[:7], r.stderr.decode().strip()[:200]))
+    if a.verify:
+        digest = hashlib.sha256(raw).hexdigest()
+        ok = digest == lock["sha256"] == hashlib.sha256(sealed).hexdigest()
+        if tmp:
+            subprocess.run(["rm", "-rf", tmp])
+        print(("Verified: the sealed engine is exactly %s of the engine source." if ok else
+               "MISMATCH: the sealed engine is not what %s of the engine source produces.") % commit[:7])
+        sys.exit(0 if ok else 1)
     os.makedirs(OUT, exist_ok=True)
     with open(os.path.join(OUT, "engine.bin"), "wb") as fh:
         fh.write(base64.b64encode(zlib.compress(raw, 9)))
