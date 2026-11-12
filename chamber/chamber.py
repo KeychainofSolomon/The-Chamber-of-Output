@@ -260,7 +260,7 @@ def person_lines(view, n):
         line = "  A thought has come to them: %s. %s. It shows as: %s." % (", and somehow ".join(
             thing(part) for part in th["text"].split(", and somehow ")), th["hold"][0].upper() + th["hold"][1:], th["ripple"])
         if th.get("guess"):
-            line += " If they wonder where it came from, they'd guess: %s." % th["guess"]
+            line += " If they wonder where it came from, they'd guess: %s." % ("you" if th["guess"] == "player" else th["guess"])
         out.append(line + " Never narrate the thought itself.")
     if view.get("face") and view.get("core"):
         out.append("  Beneath what shows: %s. Only at or after a lie, and only if pressed or alone with someone they trust."
@@ -408,10 +408,30 @@ def cmd_circle(a, C):
     print("%s is formed." % a.name)
 
 
+INVERSE_ROLE = {"child": "parent", "parent": "child", "sibling": "sibling", "spouse": "spouse", "lover": "lover",
+                "kin": "kin", "friend": "friend", "student": "mentor", "mentor": "student", "master": "subordinate",
+                "subordinate": "master", "comrade": "comrade", "rival": "rival", "enemy": "enemy",
+                "creditor": "debtor", "debtor": "creditor"}
+
+
 def cmd_tie(a, C):
-    v, err = quiet(engine().cmd_tie, file=C.need(C.person(a.name), "person"), to=a.to, role=a.role,
-                   loyalty=a.loyalty, reach=None, relabel=None)
-    print(err or "%s: %s is their %s." % (a.name, a.to, a.role))
+    """Name a relationship. Kinship, marriage, friendship and the like run both ways unless --one-way:
+    the other person gets the matching tie, with their own loyalty rolled if none is given."""
+    me = C.need(C.person(a.name), "person")
+    if C.slug(a.name) == C.slug(a.to):
+        sys.exit("Someone can't be tied to themself.")
+    v, err = quiet(engine().cmd_tie, file=me, to=a.to, role=a.role, loyalty=a.loyalty, reach=None, relabel=None)
+    if err:
+        sys.exit(err)
+    msg = "%s: %s is their %s." % (a.name, a.to, a.role)
+    other = C.person(a.to)
+    inv = INVERSE_ROLE.get(a.role)
+    if inv and not a.one_way and os.path.exists(other):
+        n2 = load(other)
+        if not any((t.get("who") or "").lower() == a.name.lower() for t in n2["ties"]):
+            quiet(engine().cmd_tie, file=other, to=load(me)["name"], role=inv, loyalty=None, reach=None, relabel=None)
+            msg += " And %s is %s's %s." % (a.name, n2["name"], inv)
+    print(msg)
 
 
 def day_lines(view, n):
@@ -498,7 +518,11 @@ def cmd_round(a, C):
     """A whole room, worked out in order: the scene, the one who leads, how their mood carries,
     then everyone else."""
     E = engine()
-    paths = [C.need(C.person(x), "person") for x in a.present]
+    seen_, present = set(), []
+    for x in a.present:
+        if C.slug(x) not in seen_:
+            seen_.add(C.slug(x)); present.append(x)
+    paths = [C.need(C.person(x), "person") for x in present]
     to = a.to or "player"
     place = C.need(C.place(a.place), "place") if a.place else None
     circle = C.need(C.circle(a.circle), "circle") if a.circle else None
@@ -551,7 +575,10 @@ def cmd_round(a, C):
         if nm in results:
             continue
         results[nm] = meet(p, att, rival=is_rival(load(p), lead), contagion=cont if nm in spread else None)
-    if sv.get("absent"):
+    gone = ["%s (%s)" % (load(p)["name"], load(p)["condition"]) for p in paths if p not in live]
+    if gone:
+        lines.append("Not taking part: %s. Nobody present can see or hear them act." % ", ".join(gone))
+    elif sv.get("absent"):
         lines.append("Not taking part: %s." % ", ".join(sv["absent"]))
     if lead and len(live) > 1:
         lines.append("%s holds the room; the others take their lead from them, or set themselves against them." % lead)
@@ -639,7 +666,7 @@ def is_rival(n, lead):
 
 def cmd_violence(a, C):
     E = engine()
-    paths = [C.need(C.person(x), "person") for x in a.present]
+    paths = list(dict.fromkeys(C.need(C.person(x), "person") for x in a.present))
     place = C.need(C.place(a.place), "place") if a.place else None
     v, err = quiet(E.cmd_violence, files=paths, world=C.world if os.path.exists(C.world) else None, dials=None,
                    hurt=a.hurt or [], place=place, victim=a.victim, attacker=a.attacker, symbol=a.symbol,
@@ -686,6 +713,7 @@ def cmd_event(a, C):
                           ("performs gratitude", "They perform gratitude."),
                           ("grieving for", "They are grieving."), ("numb: grief arrives", "They seem to carry on as if nothing happened, for now."),
                           ("an enemy gone", "No grief: whatever they show about it, they show plainly."),
+                          ("not a grief of their own", "No grief of their own: they're sobered for a while, no more."),
                           ("used to", "They're used to this by now; it lands lighter than it once did."),
                           ("clarity", "They are unusually clear for a while.")):
         if phrase in text:
@@ -916,12 +944,8 @@ def auto_backup(C, why, rotate=True):
     d = backups_dir(C)
     os.makedirs(d, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    i = 0
-    while True:
-        out = os.path.join(d, "%s-%s%s.zip" % (stamp, why, "-%d" % i if i else ""))
-        if not os.path.exists(out):
-            break
-        i += 1
+    seq = 1 + max([int(f.split("-", 1)[0]) for f in os.listdir(d) if f.endswith(".zip") and f.split("-", 1)[0].isdigit()] or [0])
+    out = os.path.join(d, "%06d-%s-%s.zip" % (seq, stamp, why))   # numbered first, so order never depends on the clock
     write_archive(C.root, out)
     old = sorted(f for f in os.listdir(d) if f.endswith(".zip")) if rotate else []
     for f in old[:-8]:
@@ -1146,7 +1170,9 @@ def cmd_learn(a, C):
     E = engine()
     v, err = quiet(E.cmd_learn, file=C.need(C.person(a.name), "person"), subject=a.about, claim=a.claim,
                    source=HOW[a.how], source_name=a.from_, reliability=None, fact=a.fact, secret=a.secret, stressed=a.stressed)
-    print(err or "%s now believes, about %s" % (v["name"], v["plain"]))
+    if err:
+        sys.exit(err)
+    print("%s now believes, about %s" % (v["name"], v["plain"]))
 
 
 def cmd_tell(a, C):
@@ -1378,6 +1404,7 @@ def main(replaying=False):
     x = sp.add_parser("circle"); x.add_argument("name"); x.add_argument("--members", nargs="*", default=[]); x.set_defaults(f=cmd_circle)
     x = sp.add_parser("tie"); x.add_argument("name"); x.add_argument("--to", required=True)
     x.add_argument("--role", required=True, choices=ROLES); x.add_argument("--loyalty", type=int, choices=range(1, 7))
+    x.add_argument("--one-way", action="store_true", help="the other person doesn't see it the same way, or doesn't know")
     x.set_defaults(f=cmd_tie)
     x = sp.add_parser("day"); x.add_argument("names", nargs="*"); x.set_defaults(f=cmd_day)
     x = sp.add_parser("round"); x.add_argument("present", nargs="+"); x.add_argument("--to")

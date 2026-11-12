@@ -84,7 +84,7 @@ senses, no quests unless `ask` allows one, thoughts shown only by their ripple.
 | `week` | Let the times move on a week. |
 | `place` | Make or add to a place: what is always there. |
 | `new`, `sheet` | Make a person; see who they are now, in plain words. |
-| `tie` | Name a relationship. |
+| `tie` | Name a relationship. Kinship, marriage, friendship, rivalry and the like run both ways unless `--one-way`. |
 | `circle` | Make a group from members. |
 | `day` | Roll a new in-world day for everyone (or named people). |
 | `round` | Run a whole room toward the player, with everything true of the moment. |
@@ -143,6 +143,9 @@ nothing, and that a replaced engine-and-lock pair is caught by `--verify`.
 and notices divergence, rename and migrate keep identity, doctor finds and sets aside damage,
 restore works, `--json` is valid, beliefs stay beliefs, and `check` catches plain breaches while
 passing clean prose.
+
+`python tests/test_determinism.py` runs the same 40-day campaign under four different Python hash
+seeds in separate processes and checks every run ends in exactly the same world.
 
 `run_tests.py` runs a long random campaign through every command and option and fails on any crash, any digit
 in a brief, or any of the engine's internal words (trait names, need names, manner labels, terms

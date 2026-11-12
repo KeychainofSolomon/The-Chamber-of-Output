@@ -18,7 +18,8 @@ FORBIDDEN = re.compile(r"\b(" + "|".join([
     "Candour", "Volatility", "Energy", "Warmth", "Discipline", "Openness", "Dominance",
     "Survival", "Safety", "Means", "Comfort", "Belonging", "Standing", "Selfhood", "Meaning",
     "Hostile", "Cool", "Neutral", "Warm", "Kind", "Wounded-\\w+", "Fear-Aggression", "Righteous Wrath",
-    "Cold Refusal", "Envy/Spite", "Teasing-Fond", "Gruff-Kind", "Bargaining-Humour"] + STYLE_NAMES) + r")\b")
+    "Cold Refusal", "Envy/Spite", "Teasing-Fond", "Gruff-Kind", "Bargaining-Humour"] + STYLE_NAMES) + r")\b"
+    r"|guess: player\b")
 DIGIT = re.compile(r"\d")
 NAMES = ["Ada Brenn", "Corin Vale", "Isolde", "Marek Holm", "Nell Ashby", "Oswin Grey", "Petra Lind",
          "Quill", "Rosalind Fenn", "Sorrel", "Tamsin Hale", "Ulric", "Vesna Kord", "Wren Talley"]
